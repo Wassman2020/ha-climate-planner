@@ -1,0 +1,14 @@
+{
+  "domain": "climate_planner",
+  "name": "Climate Planner",
+  "codeowners": ["@Wassman2020"],
+  "config_flow": true,
+  "dependencies": ["http", "frontend", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/Wassman2020/ha-climate-planner",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/Wassman2020/ha-climate-planner/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

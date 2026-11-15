@@ -1,0 +1,549 @@
+/* Climate Planner – side panel (vanilla web component, no build step). */
+
+const SEASONS = [
+  ["winter", "Invierno"],
+  ["transition", "Entretiempo"],
+  ["summer", "Verano"],
+];
+const SEASON_LABEL = Object.fromEntries(SEASONS);
+const DAYS = ["L", "M", "X", "J", "V", "S", "D"];
+const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const MODE_LABEL = {
+  off: "Apagado", heat: "Calor", cool: "Frío", heat_cool: "Auto", auto: "Auto",
+  dry: "Deshumidificar", fan_only: "Ventilador",
+};
+const MODE_COLOR = {
+  heat: "#e8743b", cool: "#3b8be8", heat_cool: "#8e5ee8", auto: "#8e5ee8",
+  dry: "#2fa59a", fan_only: "#8a9099", off: "#666",
+};
+const DEFAULTS = {
+  winter: { mode: "heat", temp: 21 },
+  summer: { mode: "cool", temp: 25 },
+  transition: { mode: "heat_cool", temp: 23 },
+};
+
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const hm = (s) => {
+  const [h, m] = String(s).split(":").map(Number);
+  return h * 60 + m;
+};
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const modeLabel = (m) => MODE_LABEL[m] || m || "—";
+
+function segments(slots) {
+  const days = Array.from({ length: 7 }, () => []);
+  for (const s of slots) {
+    if (!s.start || !s.end) continue;
+    const a = hm(s.start) % 1440;
+    const b = hm(s.end) % 1440;
+    if (a === b) continue;
+    for (const d of s.days) {
+      if (b > a) days[d].push({ from: a, to: b, s });
+      else {
+        days[d].push({ from: a, to: 1440, s });
+        if (b > 0) days[(d + 1) % 7].push({ from: 0, to: b, s });
+      }
+    }
+  }
+  return days;
+}
+
+function gridHTML(slots) {
+  const segs = segments(slots);
+  const rows = DAYS.map((label, i) => {
+    const blocks = segs[i]
+      .map((g) => {
+        const t = g.s.temperature != null && g.s.temperature !== "" ? `${g.s.temperature}°` : "";
+        const title = `${g.s.start}–${g.s.end} · ${modeLabel(g.s.hvac_mode)} ${t}`;
+        return `<div class="seg" title="${esc(title)}" style="left:${g.from / 14.4}%;width:${(g.to - g.from) / 14.4}%;background:${MODE_COLOR[g.s.hvac_mode] || "var(--primary-color)"}">${g.to - g.from >= 150 ? esc(t) : ""}</div>`;
+      })
+      .join("");
+    return `<div class="grow"><span class="dl">${label}</span><div class="bar">${blocks}</div></div>`;
+  }).join("");
+  const ticks = [0, 6, 12, 18, 24].map((h) => `<span style="left:${(h / 24) * 100}%">${h}</span>`).join("");
+  return `<div class="grid">${rows}<div class="grow"><span class="dl"></span><div class="ticks">${ticks}</div></div></div>`;
+}
+
+const CSS = `
+:host{display:block;background:var(--primary-background-color);min-height:100vh;color:var(--primary-text-color);font-family:var(--paper-font-body1_-_font-family, Roboto, sans-serif)}
+.toolbar{display:flex;align-items:center;height:56px;padding:0 12px;background:var(--app-header-background-color);color:var(--app-header-text-color, #fff);font-size:20px;position:sticky;top:0;z-index:2}
+.toolbar .title{margin-left:8px}
+.content{max-width:900px;margin:0 auto;padding:12px}
+.card{background:var(--card-background-color);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:var(--ha-card-box-shadow, 0 1px 3px rgba(0,0,0,.2))}
+.card.disabled{opacity:.55}
+h3{margin:0 0 10px;font-weight:500}
+.row{display:flex;align-items:center;gap:10px;margin:6px 0}
+.wrap{flex-wrap:wrap}
+.between{justify-content:space-between}
+.end{justify-content:flex-end;flex-wrap:wrap}
+.name{font-size:17px;font-weight:500}
+.sub{color:var(--secondary-text-color);font-size:13px;margin-top:2px}
+.lbl{margin:14px 0 6px;font-weight:500;color:var(--secondary-text-color);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+label.sw{display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer}
+label.f{display:flex;flex-direction:column;font-size:12px;color:var(--secondary-text-color);gap:3px}
+input,select{font:inherit;color:var(--primary-text-color);background:var(--secondary-background-color, #f3f3f3);border:1px solid var(--divider-color);border-radius:8px;padding:7px 8px}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--primary-color)}
+input[type=number]{width:80px}
+input.wide{width:100%;box-sizing:border-box}
+button{font:inherit;border:1px solid var(--divider-color);background:transparent;color:var(--primary-text-color);border-radius:8px;padding:7px 12px;cursor:pointer}
+button.primary{background:var(--primary-color);color:var(--text-primary-color, #fff);border-color:var(--primary-color)}
+button.danger{color:var(--error-color, #db4437);border-color:var(--error-color, #db4437)}
+button.mini{padding:3px 8px;font-size:12px}
+.tabs{display:flex;gap:6px;margin:4px 0 12px;overflow-x:auto}
+.tab{flex:1;white-space:nowrap}
+.tab.on{background:var(--primary-color);color:var(--text-primary-color, #fff);border-color:var(--primary-color)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4caf50;margin-left:6px;vertical-align:middle}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border-radius:16px;padding:5px 12px}
+.chip.on{background:var(--primary-color);color:var(--text-primary-color, #fff);border-color:var(--primary-color)}
+.slot{border:1px solid var(--divider-color);border-radius:10px;padding:10px;margin-bottom:8px}
+.days{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.day{width:34px;height:34px;padding:0;border-radius:50%}
+.day.on{background:var(--primary-color);color:var(--text-primary-color, #fff);border-color:var(--primary-color)}
+.grid{margin-top:8px}
+.grow{display:flex;align-items:center;gap:6px;margin:3px 0}
+.dl{width:14px;font-size:12px;color:var(--secondary-text-color)}
+.bar{position:relative;flex:1;height:20px;border-radius:5px;background:var(--secondary-background-color, #eee);overflow:hidden}
+.seg{position:absolute;top:0;bottom:0;border-radius:4px;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.ticks{position:relative;flex:1;height:14px;font-size:10px;color:var(--secondary-text-color)}
+.ticks span{position:absolute;transform:translateX(-50%)}
+.ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}
+.empty{color:var(--secondary-text-color);text-align:center;padding:20px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;z-index:5}
+.toast.show{opacity:1}.toast.err{background:var(--error-color, #db4437)}
+`;
+
+class ClimatePlannerPanel extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._data = null;
+    this._tab = null;
+    this._edit = null;
+    this._dates = null;
+    this._confirmDel = null;
+    this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
+    this.shadowRoot.addEventListener("change", (e) => this._onChange(e));
+    this.shadowRoot.addEventListener("input", (e) => this._onInput(e));
+  }
+
+  set hass(hass) {
+    const first = !this._hass;
+    this._hass = hass;
+    const mb = this.shadowRoot.querySelector("ha-menu-button");
+    if (mb) mb.hass = hass;
+    if (first) {
+      this._render();
+      this._load();
+    }
+  }
+  set narrow(n) {
+    this._narrow = n;
+    const mb = this.shadowRoot.querySelector("ha-menu-button");
+    if (mb) mb.narrow = n;
+  }
+  set panel(_p) {}
+
+  /* ------------------------------------------------------------ data */
+  async _ws(type, extra = {}) {
+    try {
+      const res = await this._hass.callWS({ type, ...extra });
+      this._data = res;
+      return res;
+    } catch (err) {
+      this._toast(err?.message || String(err), true);
+      throw err;
+    }
+  }
+  async _load() {
+    try {
+      await this._ws("climate_planner/get");
+      if (!this._tab) this._tab = this._data.season;
+      this._render();
+    } catch (_e) { /* toast shown */ }
+  }
+  _climates() {
+    return Object.values(this._hass.states)
+      .filter((s) => s.entity_id.startsWith("climate."))
+      .map((s) => ({ id: s.entity_id, name: s.attributes.friendly_name || s.entity_id, attrs: s.attributes }))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  }
+  _entName(id) {
+    return this._hass.states[id]?.attributes.friendly_name || id;
+  }
+  _schedule(id) {
+    return this._data.schedules.find((s) => s.id === id);
+  }
+
+  /* ---------------------------------------------------------- render */
+  _render() {
+    if (!this._content) {
+      this.shadowRoot.innerHTML = `<style>${CSS}</style>
+        <div class="toolbar"><ha-menu-button></ha-menu-button><div class="title">Climatización</div></div>
+        <div class="content"></div>
+        <div id="toast" class="toast"></div>`;
+      this._content = this.shadowRoot.querySelector(".content");
+      const mb = this.shadowRoot.querySelector("ha-menu-button");
+      if (mb) {
+        mb.hass = this._hass;
+        mb.narrow = this._narrow;
+      }
+    }
+    this._content.innerHTML = this._data ? this._body() : '<div class="card">Cargando…</div>';
+  }
+
+  _body() {
+    if (this._edit) return this._settingsCard() + this._editor();
+    const list = this._data.schedules.filter((s) => s.season === this._tab);
+    const tabs = SEASONS.map(([k, l]) => {
+      const n = this._data.schedules.filter((s) => s.season === k).length;
+      return `<button class="tab ${k === this._tab ? "on" : ""}" data-action="tab" data-season="${k}">${l} (${n})${k === this._data.season ? '<span class="dot" title="Temporada activa"></span>' : ""}</button>`;
+    }).join("");
+    return `${this._settingsCard()}
+      <div class="tabs">${tabs}</div>
+      ${list.length ? list.map((s) => this._card(s)).join("") : `<div class="card empty">No hay horarios de ${SEASON_LABEL[this._tab].toLowerCase()}.</div>`}
+      <div class="row end"><button class="primary" data-action="new">+ Nuevo horario</button></div>`;
+  }
+
+  _settingsCard() {
+    const d = this._data;
+    const opts = SEASONS.map(([k, l]) => `<option value="${k}" ${k === d.season ? "selected" : ""}>${l}</option>`).join("");
+    return `<div class="card">
+      <div class="row between">
+        <label class="sw"><input type="checkbox" data-setting="enabled" ${d.enabled ? "checked" : ""}> Programación activa</label>
+        <button data-action="resync">Aplicar ahora</button>
+      </div>
+      <div class="row"><span>Temporada activa</span><select data-setting="season">${opts}</select></div>
+      <label class="sw"><input type="checkbox" data-setting="auto_season" ${d.auto_season ? "checked" : ""}> Cambiar de temporada por fechas</label>
+      <label class="sw"><input type="checkbox" data-setting="resync_on_start" ${d.resync_on_start ? "checked" : ""}> Aplicar el estado del horario al arrancar HA</label>
+      ${d.auto_season && !this._edit ? this._datesEditor() : ""}
+    </div>`;
+  }
+
+  _datesEditor() {
+    const dates = this._dates || this._data.season_dates;
+    const rows = dates.map((e, i) => {
+      const [m, day] = e.start.split("-").map(Number);
+      const sOpts = SEASONS.map(([k, l]) => `<option value="${k}" ${k === e.season ? "selected" : ""}>${l}</option>`).join("");
+      const dOpts = Array.from({ length: 31 }, (_, j) => `<option ${j + 1 === day ? "selected" : ""}>${j + 1}</option>`).join("");
+      const mOpts = MONTHS.map((n, j) => `<option value="${j + 1}" ${j + 1 === m ? "selected" : ""}>${n}</option>`).join("");
+      return `<div class="row wrap"><span>Desde el</span>
+        <select data-date="day" data-i="${i}">${dOpts}</select>
+        <select data-date="month" data-i="${i}">${mOpts}</select>
+        <span>→</span><select data-date="season" data-i="${i}">${sOpts}</select>
+        <button class="mini danger" data-action="date-del" data-i="${i}">✕</button></div>`;
+    }).join("");
+    return `<div class="lbl">Cambios de temporada</div>${rows}
+      <div class="row end"><button class="mini" data-action="date-add">+ Añadir cambio</button>
+      ${this._dates ? '<button class="mini" data-action="date-cancel">Descartar</button><button class="mini primary" data-action="date-save">Guardar fechas</button>' : ""}</div>`;
+  }
+
+  _card(s) {
+    const ents = s.entities.map((e) => esc(this._entName(e))).join(", ");
+    const last = Object.values(this._data.last_actions || {})
+      .filter((a) => a.schedule === s.name)
+      .sort((a, b) => (a.time < b.time ? 1 : -1))[0];
+    const lastTxt = last
+      ? ` · Último: ${new Date(last.time).toLocaleString("es-ES", { weekday: "short", hour: "2-digit", minute: "2-digit" })} ${modeLabel(last.hvac_mode)}${last.temperature != null ? " " + last.temperature + "°" : ""}`
+      : "";
+    const del = this._confirmDel === s.id ? "¿Seguro?" : "Eliminar";
+    return `<div class="card ${s.enabled ? "" : "disabled"}">
+      <div class="row between">
+        <div><div class="name">${esc(s.name)}</div><div class="sub">${ents}${lastTxt}</div></div>
+        <label class="sw" title="Activo"><input type="checkbox" data-toggle="${s.id}" ${s.enabled ? "checked" : ""}></label>
+      </div>
+      ${gridHTML(s.slots)}
+      <div class="row end">
+        <button class="mini" data-action="apply" data-id="${s.id}">Aplicar</button>
+        <button class="mini" data-action="dup" data-id="${s.id}">Duplicar</button>
+        <button class="mini" data-action="edit" data-id="${s.id}">Editar</button>
+        <button class="mini danger" data-action="del" data-id="${s.id}">${del}</button>
+      </div></div>`;
+  }
+
+  _modesFor(entities) {
+    const all = this._climates();
+    const sel = all.filter((c) => entities.includes(c.id));
+    const src = sel.length ? sel : all;
+    const modes = new Set();
+    src.forEach((c) => (c.attrs.hvac_modes || []).forEach((m) => m !== "off" && modes.add(m)));
+    let fans = null;
+    sel.forEach((c) => {
+      const f = c.attrs.fan_modes || [];
+      fans = fans === null ? [...f] : fans.filter((x) => f.includes(x));
+    });
+    const first = sel[0]?.attrs || {};
+    return {
+      modes: [...modes],
+      fans: fans || [],
+      min: first.min_temp ?? 7,
+      max: first.max_temp ?? 35,
+      step: first.target_temp_step ?? 0.5,
+    };
+  }
+
+  _editor() {
+    const e = this._edit;
+    const info = this._modesFor(e.entities);
+    const sOpts = SEASONS.map(([k, l]) => `<option value="${k}" ${k === e.season ? "selected" : ""}>${l}</option>`).join("");
+    const chips = this._climates()
+      .map((c) => `<button class="chip ${e.entities.includes(c.id) ? "on" : ""}" data-action="ent" data-ent="${c.id}">${esc(c.name)}</button>`)
+      .join("");
+    const slots = e.slots.map((s, i) => this._slotEditor(s, i, info)).join("");
+    return `<div class="card">
+      <h3>${e.id ? "Editar horario" : "Nuevo horario"}</h3>
+      <div class="row wrap">
+        <label class="f" style="flex:1;min-width:180px">Nombre<input class="wide" data-e="name" value="${esc(e.name)}" placeholder="Ej. Salón invierno"></label>
+        <label class="f">Temporada<select data-e="season">${sOpts}</select></label>
+      </div>
+      <label class="sw"><input type="checkbox" data-e="enabled" ${e.enabled ? "checked" : ""}> Activo</label>
+      <label class="sw"><input type="checkbox" data-e="off_outside" ${e.off_outside ? "checked" : ""}> Apagar al terminar cada franja</label>
+      <div class="lbl">Equipos</div><div class="chips">${chips}</div>
+      <div class="lbl">Franjas</div>${slots || '<div class="sub">Añade al menos una franja.</div>'}
+      <button data-action="slot-add">+ Añadir franja</button>
+      <div class="lbl">Vista semanal</div><div id="preview">${gridHTML(e.slots)}</div>
+      <div class="row end" style="margin-top:12px">
+        <button data-action="cancel">Cancelar</button>
+        <button class="primary" data-action="save">Guardar</button>
+      </div></div>`;
+  }
+
+  _slotEditor(s, i, info) {
+    const days = DAYS.map((d, j) => `<button class="day ${s.days.includes(j) ? "on" : ""}" data-action="day" data-i="${i}" data-day="${j}">${d}</button>`).join("");
+    const modes = [...info.modes];
+    if (s.hvac_mode && !modes.includes(s.hvac_mode)) modes.push(s.hvac_mode);
+    const mOpts = modes.map((m) => `<option value="${m}" ${m === s.hvac_mode ? "selected" : ""}>${modeLabel(m)}</option>`).join("");
+    const fan = info.fans.length
+      ? `<label class="f">Ventilador<select data-slot="fan_mode" data-i="${i}"><option value="">—</option>${info.fans
+          .map((f) => `<option ${f === s.fan_mode ? "selected" : ""}>${esc(f)}</option>`)
+          .join("")}</select></label>`
+      : "";
+    return `<div class="slot">
+      <div class="days">${days}
+        <button class="mini" data-action="preset" data-i="${i}" data-p="wk">L‑V</button>
+        <button class="mini" data-action="preset" data-i="${i}" data-p="we">S‑D</button>
+        <button class="mini" data-action="preset" data-i="${i}" data-p="all">Todos</button>
+      </div>
+      <div class="row wrap">
+        <label class="f">Desde<input type="time" data-slot="start" data-i="${i}" value="${esc(s.start)}"></label>
+        <label class="f">Hasta<input type="time" data-slot="end" data-i="${i}" value="${esc(s.end)}"></label>
+        <label class="f">Modo<select data-slot="hvac_mode" data-i="${i}">${mOpts}</select></label>
+        <label class="f">Consigna °C<input type="number" data-slot="temperature" data-i="${i}" min="${info.min}" max="${info.max}" step="${info.step}" value="${s.temperature ?? ""}"></label>
+        ${fan}
+        <button class="mini danger" data-action="slot-del" data-i="${i}" style="margin-left:auto">✕</button>
+      </div></div>`;
+  }
+
+  _refreshPreview() {
+    const p = this.shadowRoot.getElementById("preview");
+    if (p && this._edit) p.innerHTML = gridHTML(this._edit.slots);
+  }
+
+  _toast(msg, err = false) {
+    const t = this.shadowRoot.getElementById("toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.className = `toast show ${err ? "err" : ""}`;
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => (t.className = "toast"), err ? 6000 : 2500);
+  }
+
+  /* ---------------------------------------------------------- events */
+  async _onClick(ev) {
+    const btn = ev.target.closest("[data-action]");
+    if (!btn) return;
+    const a = btn.dataset.action;
+    const i = Number(btn.dataset.i);
+    const e = this._edit;
+    try {
+      switch (a) {
+        case "tab":
+          this._tab = btn.dataset.season;
+          this._confirmDel = null;
+          break;
+        case "resync":
+          await this._ws("climate_planner/resync");
+          this._toast("Estado aplicado a los equipos");
+          return;
+        case "apply":
+          await this._ws("climate_planner/resync", { schedule_id: btn.dataset.id });
+          this._toast(this._schedule(btn.dataset.id)?.season === this._data.season
+            ? "Horario aplicado"
+            : "Este horario no es de la temporada activa");
+          return;
+        case "new": {
+          const def = DEFAULTS[this._tab];
+          this._edit = {
+            name: "", season: this._tab, enabled: true, off_outside: true, entities: [],
+            slots: [{ days: [0, 1, 2, 3, 4], start: "07:00", end: "09:00", hvac_mode: def.mode, temperature: def.temp, fan_mode: null }],
+          };
+          break;
+        }
+        case "edit":
+          this._edit = clone(this._schedule(btn.dataset.id));
+          break;
+        case "dup": {
+          const c = clone(this._schedule(btn.dataset.id));
+          delete c.id;
+          c.name += " (copia)";
+          this._edit = c;
+          break;
+        }
+        case "del":
+          if (this._confirmDel !== btn.dataset.id) {
+            this._confirmDel = btn.dataset.id;
+            break;
+          }
+          this._confirmDel = null;
+          await this._ws("climate_planner/schedule/delete", { schedule_id: btn.dataset.id });
+          this._toast("Horario eliminado");
+          break;
+        case "cancel":
+          this._edit = null;
+          break;
+        case "save":
+          if (!(await this._save())) return;
+          break;
+        case "ent": {
+          const id = btn.dataset.ent;
+          e.entities = e.entities.includes(id) ? e.entities.filter((x) => x !== id) : [...e.entities, id];
+          break;
+        }
+        case "slot-add": {
+          const last = e.slots[e.slots.length - 1];
+          const def = DEFAULTS[e.season];
+          e.slots.push(last
+            ? { ...clone(last), start: last.end, end: last.end === "23:00" ? "23:59" : String((Math.floor(hm(last.end) / 60) + 2) % 24).padStart(2, "0") + ":00" }
+            : { days: [0, 1, 2, 3, 4], start: "07:00", end: "09:00", hvac_mode: def.mode, temperature: def.temp, fan_mode: null });
+          break;
+        }
+        case "slot-del":
+          e.slots.splice(i, 1);
+          break;
+        case "day": {
+          const d = Number(btn.dataset.day);
+          const s = e.slots[i];
+          s.days = s.days.includes(d) ? s.days.filter((x) => x !== d) : [...s.days, d].sort();
+          break;
+        }
+        case "preset":
+          e.slots[i].days = { wk: [0, 1, 2, 3, 4], we: [5, 6], all: [0, 1, 2, 3, 4, 5, 6] }[btn.dataset.p];
+          break;
+        case "date-add":
+          this._dates = this._dates || clone(this._data.season_dates);
+          this._dates.push({ season: "transition", start: "01-01" });
+          break;
+        case "date-del":
+          this._dates = this._dates || clone(this._data.season_dates);
+          this._dates.splice(i, 1);
+          break;
+        case "date-cancel":
+          this._dates = null;
+          break;
+        case "date-save": {
+          if (!this._dates.length) return this._toast("Deja al menos un cambio de temporada", true);
+          const sorted = [...this._dates].sort((x, y) => (x.start < y.start ? -1 : 1));
+          await this._ws("climate_planner/settings", { season_dates: sorted });
+          this._dates = null;
+          this._tab = this._data.season;
+          this._toast("Fechas guardadas");
+          break;
+        }
+        default:
+          return;
+      }
+    } catch (_err) {
+      return; // toast already shown
+    }
+    this._render();
+  }
+
+  async _save() {
+    const e = this._edit;
+    if (!e.name.trim()) return this._toast("Ponle un nombre al horario", true), false;
+    if (!e.entities.length) return this._toast("Elige al menos un equipo", true), false;
+    if (!e.slots.length) return this._toast("Añade al menos una franja", true), false;
+    for (const s of e.slots) {
+      if (!s.days.length) return this._toast("Cada franja necesita al menos un día", true), false;
+      if (!s.start || !s.end || hm(s.start) % 1440 === hm(s.end) % 1440)
+        return this._toast("Revisa las horas: inicio y fin no pueden coincidir", true), false;
+    }
+    const payload = clone(e);
+    payload.name = payload.name.trim();
+    payload.slots.forEach((s) => {
+      s.temperature = s.temperature === "" || s.temperature == null ? null : Number(s.temperature);
+      s.fan_mode = s.fan_mode || null;
+    });
+    try {
+      await this._ws("climate_planner/schedule/save", { schedule: payload });
+    } catch (_err) {
+      return false;
+    }
+    this._tab = e.season;
+    this._edit = null;
+    this._toast("Horario guardado");
+    return true;
+  }
+
+  async _onChange(ev) {
+    const t = ev.target;
+    if (t.dataset.setting) {
+      const key = t.dataset.setting;
+      const value = t.type === "checkbox" ? t.checked : t.value;
+      try {
+        await this._ws("climate_planner/settings", { [key]: value });
+        if (key === "season" || key === "auto_season") this._tab = this._data.season;
+      } catch (_e) { /* toast shown */ }
+      this._render();
+      return;
+    }
+    if (t.dataset.toggle) {
+      const s = clone(this._schedule(t.dataset.toggle));
+      s.enabled = t.checked;
+      try {
+        await this._ws("climate_planner/schedule/save", { schedule: s });
+      } catch (_e) { /* toast shown */ }
+      this._render();
+      return;
+    }
+    if (t.dataset.date) {
+      this._dates = this._dates || clone(this._data.season_dates);
+      const i = Number(t.dataset.i);
+      const entry = this._dates[i];
+      let [m, d] = entry.start.split("-").map(Number);
+      if (t.dataset.date === "season") entry.season = t.value;
+      if (t.dataset.date === "day") d = Number(t.value);
+      if (t.dataset.date === "month") m = Number(t.value);
+      const maxDay = new Date(2024, m, 0).getDate();
+      d = Math.min(d, maxDay);
+      entry.start = `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      this._render();
+      return;
+    }
+    if (t.dataset.e && this._edit) {
+      this._edit[t.dataset.e] = t.type === "checkbox" ? t.checked : t.value;
+      if (t.dataset.e === "season") this._render();
+      return;
+    }
+    this._onInput(ev);
+  }
+
+  _onInput(ev) {
+    const t = ev.target;
+    if (!this._edit) return;
+    if (t.dataset.e === "name") {
+      this._edit.name = t.value;
+      return;
+    }
+    if (t.dataset.slot) {
+      const s = this._edit.slots[Number(t.dataset.i)];
+      s[t.dataset.slot] = t.value;
+      this._refreshPreview();
+    }
+  }
+}
+
+if (!customElements.get("climate-planner-panel")) {
+  customElements.define("climate-planner-panel", ClimatePlannerPanel);
+}

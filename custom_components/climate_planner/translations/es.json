@@ -1,0 +1,58 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Climate Planner",
+        "description": "Añade la programación semanal por temporadas. Los horarios se configuran desde el panel «Climatización» de la barra lateral."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Ya está configurado."
+    }
+  },
+  "entity": {
+    "select": {
+      "season": {
+        "name": "Temporada",
+        "state": {
+          "winter": "Invierno",
+          "transition": "Entretiempo",
+          "summer": "Verano"
+        }
+      }
+    },
+    "switch": {
+      "enabled": {
+        "name": "Programación activa"
+      },
+      "auto_season": {
+        "name": "Cambio de temporada por fechas"
+      }
+    }
+  },
+  "selector": {
+    "season": {
+      "options": {
+        "winter": "Invierno",
+        "transition": "Entretiempo",
+        "summer": "Verano"
+      }
+    }
+  },
+  "services": {
+    "resync": {
+      "name": "Resincronizar",
+      "description": "Aplica ahora a cada equipo el estado que marca su horario activo."
+    },
+    "set_season": {
+      "name": "Cambiar temporada",
+      "description": "Cambia la temporada activa.",
+      "fields": {
+        "season": {
+          "name": "Temporada",
+          "description": "Temporada a activar."
+        }
+      }
+    }
+  }
+}

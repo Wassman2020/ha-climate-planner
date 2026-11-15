@@ -1,0 +1,58 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Climate Planner",
+        "description": "Adds season-aware weekly schedules. Schedules are edited from the “Climate” side panel."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured."
+    }
+  },
+  "entity": {
+    "select": {
+      "season": {
+        "name": "Season",
+        "state": {
+          "winter": "Winter",
+          "transition": "Mid-season",
+          "summer": "Summer"
+        }
+      }
+    },
+    "switch": {
+      "enabled": {
+        "name": "Scheduling enabled"
+      },
+      "auto_season": {
+        "name": "Date-based season change"
+      }
+    }
+  },
+  "selector": {
+    "season": {
+      "options": {
+        "winter": "Winter",
+        "transition": "Mid-season",
+        "summer": "Summer"
+      }
+    }
+  },
+  "services": {
+    "resync": {
+      "name": "Resync",
+      "description": "Apply the state each active schedule expects right now."
+    },
+    "set_season": {
+      "name": "Set season",
+      "description": "Change the active season.",
+      "fields": {
+        "season": {
+          "name": "Season",
+          "description": "Season to activate."
+        }
+      }
+    }
+  }
+}

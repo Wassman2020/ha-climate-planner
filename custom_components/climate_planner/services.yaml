@@ -1,0 +1,12 @@
+resync:
+set_season:
+  fields:
+    season:
+      required: true
+      selector:
+        select:
+          options:
+            - winter
+            - transition
+            - summer
+          translation_key: season
