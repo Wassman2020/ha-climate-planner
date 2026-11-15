@@ -127,3 +127,64 @@ async def test_services_multi_season(hass: HomeAssistant, freezer: FrozenDateTim
     await hass.services.async_call(DOMAIN, "delete_schedule", {"schedule_id": "sotano_seguridad"}, blocking=True)
     data = await hass.services.async_call(DOMAIN, "list_schedules", {}, blocking=True, return_response=True)
     assert data["schedules"] == []
+
+
+async def test_presence_rules(hass: HomeAssistant, freezer: FrozenDateTimeFactory):
+    await hass.config.async_set_time_zone("Europe/Madrid")
+    tz = dt_util.get_time_zone("Europe/Madrid")
+    at = lambda d, h, mi: dt_util.as_utc(datetime(2026, 11, d, h, mi, 0, tzinfo=tz))
+    freezer.move_to(at(16, 10, 0))  # Monday
+    hass.states.async_set("climate.salon", "heat", {"hvac_modes": ["off", "heat"]})
+    hass.states.async_set("binary_sensor.radar", "on")
+    hass.states.async_set("binary_sensor.cam", "unavailable")
+    hvac = async_mock_service(hass, "climate", "set_hvac_mode")
+    await _setup(hass)
+    planner = hass.data[DOMAIN]["planner"]
+
+    async def minute(h, mi):
+        freezer.move_to(at(16, h, mi))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    # Schedule 16:00-23:00 heat; rule only outside schedules, 10 min
+    await hass.services.async_call(DOMAIN, "save_schedule", {
+        "id": "s", "name": "Salón", "seasons": ["winter"], "entities": ["climate.salon"],
+        "slots": [{"days": [0], "start": "16:00", "end": "23:00", "hvac_mode": "heat", "temperature": 22}],
+    }, blocking=True)
+    await hass.services.async_call(DOMAIN, "save_presence_rule", {
+        "entity": "climate.salon", "sensors": ["binary_sensor.radar", "binary_sensor.cam"],
+        "delay": 10, "mode": "outside"}, blocking=True)
+
+    hass.states.async_set("binary_sensor.radar", "off")  # empty from 10:00
+    await minute(10, 5)
+    assert not hvac  # delay not reached
+    await minute(10, 10)
+    assert hvac[-1].data["hvac_mode"] == "off"
+
+    # inside schedule: no presence-off
+    hvac.clear()
+    freezer.move_to(at(16, 17, 0))
+    hass.states.async_set("climate.salon", "cool", {"hvac_modes": ["off", "heat", "cool"]})
+    hass.states.async_set("binary_sensor.radar", "on")
+    hass.states.async_set("binary_sensor.radar", "off")
+    await minute(17, 30)
+    assert not hvac
+
+    # windows mode: 17:00-18:00 -> fires
+    await hass.services.async_call(DOMAIN, "save_presence_rule", {
+        "entity": "climate.salon", "sensors": ["binary_sensor.radar"], "delay": 10,
+        "mode": "windows", "windows": [{"days": [0], "start": "17:00", "end": "18:00"}]}, blocking=True)
+    await minute(17, 31)
+    assert hvac[-1].data["hvac_mode"] == "off"
+    assert planner.last_actions["climate.salon"]["reason"] == "presence"
+    assert len(planner.data["presence_rules"]) == 1
+
+    # someone present -> nothing; only unavailable sensors -> nothing
+    hvac.clear()
+    hass.states.async_set("binary_sensor.radar", "on")
+    await minute(17, 50)
+    hass.states.async_set("binary_sensor.radar", "unavailable")
+    await minute(17, 59)
+    assert not hvac
+    await hass.services.async_call(DOMAIN, "delete_presence_rule", {"entity": "climate.salon"}, blocking=True)
+    assert planner.data["presence_rules"] == []

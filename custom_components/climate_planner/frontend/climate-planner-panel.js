@@ -13,6 +13,7 @@ const MODE_LABEL = {
   dry: "Deshumidificar", fan_only: "Ventilador",
 };
 const MODE_COLOR = {
+  presence: "#4caf50",
   heat: "#e8743b", cool: "#3b8be8", heat_cool: "#8e5ee8", auto: "#8e5ee8",
   dry: "#2fa59a", fan_only: "#8a9099", off: "#666",
 };
@@ -136,6 +137,9 @@ class ClimatePlannerPanel extends HTMLElement {
     this._edit = null;
     this._dates = null;
     this._confirmDel = null;
+    this._view = "schedules";
+    this._pedit = null;
+    this._pAll = false;
     this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
     this.shadowRoot.addEventListener("change", (e) => this._onChange(e));
     this.shadowRoot.addEventListener("input", (e) => this._onInput(e));
@@ -208,12 +212,18 @@ class ClimatePlannerPanel extends HTMLElement {
 
   _body() {
     if (this._edit) return this._settingsCard() + this._editor();
+    if (this._pedit) return this._presenceEditor();
+    const views = [["schedules", "Horarios"], ["presence", "Presencia"]]
+      .map(([k, l]) => `<button class="tab ${k === this._view ? "on" : ""}" data-action="view" data-view="${k}">${l}</button>`)
+      .join("");
+    if (this._view === "presence") return `${this._settingsCard()}<div class="tabs">${views}</div>${this._presenceList()}`;
     const list = this._data.schedules.filter((s) => s.seasons.includes(this._tab));
     const tabs = SEASONS.map(([k, l]) => {
       const n = this._data.schedules.filter((s) => s.seasons.includes(k)).length;
       return `<button class="tab ${k === this._tab ? "on" : ""}" data-action="tab" data-season="${k}">${l} (${n})${k === this._data.season ? '<span class="dot" title="Temporada activa"></span>' : ""}</button>`;
     }).join("");
     return `${this._settingsCard()}
+      <div class="tabs">${views}</div>
       <div class="tabs">${tabs}</div>
       ${list.length ? list.map((s) => this._card(s)).join("") : `<div class="card empty">No hay horarios de ${SEASON_LABEL[this._tab].toLowerCase()}.</div>`}
       <div class="row end"><button class="primary" data-action="new">+ Nuevo horario</button></div>`;
@@ -349,6 +359,125 @@ class ClimatePlannerPanel extends HTMLElement {
       </div></div>`;
   }
 
+  /* -------------------------------------------------------- presence */
+  _sensorLabel(id) {
+    const st = this._hass.states[id];
+    const name = esc(st?.attributes.friendly_name || id);
+    if (!st) return `${name} (no existe)`;
+    if (st.state === "on") return `${name} <b style="color:#4caf50">● presencia</b>`;
+    if (st.state === "off") return `${name} ○ vacío`;
+    return `${name} <i>(${esc(st.state)})</i>`;
+  }
+
+  _windowsText(ws) {
+    return ws
+      .map((w) => {
+        const d = w.days.length === 7 ? "Todos" : w.days.map((x) => DAYS[x]).join("");
+        return `${d} ${w.start}–${w.end}`;
+      })
+      .join(", ");
+  }
+
+  _presenceList() {
+    const rules = this._data.presence_rules || [];
+    const cards = rules
+      .map((r) => {
+        const mode = r.mode === "outside"
+          ? "fuera de las programaciones"
+          : r.mode === "windows" ? `en ${this._windowsText(r.windows)}` : "siempre";
+        const del = this._confirmDel === "p:" + r.entity ? "¿Seguro?" : "Eliminar";
+        const cst = this._hass.states[r.entity]?.state;
+        return `<div class="card ${r.enabled ? "" : "disabled"}">
+          <div class="row between">
+            <div><div class="name">${esc(this._entName(r.entity))}<span class="badge">${esc(modeLabel(cst))}</span></div>
+              <div class="sub">Se apaga tras ${r.delay} min sin nadie, ${esc(mode)}.</div>
+              <div class="sub">${r.sensors.map((x) => this._sensorLabel(x)).join(" · ")}</div></div>
+            <label class="sw"><input type="checkbox" data-ptoggle="${r.entity}" ${r.enabled ? "checked" : ""}></label>
+          </div>
+          ${r.mode === "windows" ? gridHTML(r.windows.map((w) => ({ ...w, hvac_mode: "presence" }))) : ""}
+          <div class="row end">
+            <button class="mini" data-action="pedit" data-ent="${r.entity}">Editar</button>
+            <button class="mini danger" data-action="pdel" data-ent="${r.entity}">${del}</button>
+          </div></div>`;
+      })
+      .join("");
+    return `${cards || '<div class="card empty">No hay reglas de presencia. Añade una para apagar un equipo cuando no haya nadie.</div>'}
+      <div class="row end"><button class="primary" data-action="pnew">+ Nueva regla</button></div>`;
+  }
+
+  _presenceEditor() {
+    const r = this._pedit;
+    const climates = this._climates();
+    const used = new Set((this._data.presence_rules || []).map((x) => x.entity));
+    const cOpts = climates
+      .map((c) => `<option value="${c.id}" ${c.id === r.entity ? "selected" : ""}>${esc(c.name)}${used.has(c.id) && c.id !== r._orig ? " (ya tiene regla)" : ""}</option>`)
+      .join("");
+    const classes = ["occupancy", "presence", "motion"];
+    const sensors = Object.values(this._hass.states)
+      .filter((s) => s.entity_id.startsWith("binary_sensor.") &&
+        (this._pAll || classes.includes(s.attributes.device_class) || r.sensors.includes(s.entity_id)))
+      .sort((a, b) => (a.attributes.friendly_name || "").localeCompare(b.attributes.friendly_name || "", "es"));
+    const chips = sensors
+      .map((s) => `<button class="chip ${r.sensors.includes(s.entity_id) ? "on" : ""}" data-action="psensor" data-sensor="${s.entity_id}">${esc(s.attributes.friendly_name || s.entity_id)}${s.state === "on" ? " ●" : ""}</button>`)
+      .join("");
+    const radio = (v, l) => `<label class="sw"><input type="radio" name="pmode" data-p="mode" value="${v}" ${r.mode === v ? "checked" : ""}> ${l}</label>`;
+    const wins = r.windows
+      .map((w, i) => `<div class="slot"><div class="days">${DAYS.map((d, j) => `<button class="day ${w.days.includes(j) ? "on" : ""}" data-action="wday" data-i="${i}" data-day="${j}">${d}</button>`).join("")}
+        <button class="mini" data-action="wpreset" data-i="${i}" data-p="wk">L‑V</button>
+        <button class="mini" data-action="wpreset" data-i="${i}" data-p="we">S‑D</button>
+        <button class="mini" data-action="wpreset" data-i="${i}" data-p="all">Todos</button></div>
+        <div class="row wrap"><label class="f">Desde<input type="time" data-w="start" data-i="${i}" value="${esc(w.start)}"></label>
+        <label class="f">Hasta<input type="time" data-w="end" data-i="${i}" value="${esc(w.end)}"></label>
+        <button class="mini danger" data-action="wdel" data-i="${i}" style="margin-left:auto">✕</button></div></div>`)
+      .join("");
+    return `<div class="card">
+      <h3>${r._orig ? "Editar regla de presencia" : "Nueva regla de presencia"}</h3>
+      <div class="row wrap">
+        <label class="f" style="flex:1;min-width:180px">Equipo<select data-p="entity">${cOpts}</select></label>
+        <label class="f">Minutos sin nadie<input type="number" min="1" max="720" data-p="delay" value="${r.delay}"></label>
+      </div>
+      <label class="sw"><input type="checkbox" data-p="enabled" ${r.enabled ? "checked" : ""}> Activa</label>
+      <div class="lbl">Sensores de presencia</div>
+      <div class="sub" style="margin-bottom:6px">Se considera que no hay nadie cuando ninguno detecta presencia. Los sensores no disponibles se ignoran.</div>
+      <div class="chips">${chips || '<span class="sub">No hay sensores de presencia o movimiento.</span>'}</div>
+      <label class="sw" style="font-size:13px"><input type="checkbox" data-p="all" ${this._pAll ? "checked" : ""}> Mostrar todos los sensores binarios</label>
+      <div class="lbl">Cuándo apagar</div>
+      ${radio("always", "Siempre que esté encendido y no haya nadie")}
+      ${radio("outside", "Solo fuera de las programaciones (si alguien lo enciende fuera de horario)")}
+      ${radio("windows", "Solo en estas franjas horarias")}
+      ${r.mode === "windows" ? `${wins}<button data-action="wadd">+ Añadir franja</button>` : ""}
+      <div class="row end" style="margin-top:12px">
+        <button data-action="pcancel">Cancelar</button>
+        <button class="primary" data-action="psave">Guardar</button>
+      </div></div>`;
+  }
+
+  async _savePresence() {
+    const r = this._pedit;
+    if (!r.entity) return this._toast("Elige un equipo", true), false;
+    if (!r.sensors.length) return this._toast("Elige al menos un sensor", true), false;
+    const delay = Number(r.delay);
+    if (!(delay >= 1 && delay <= 720)) return this._toast("El retardo debe estar entre 1 y 720 minutos", true), false;
+    if (r.mode === "windows") {
+      if (!r.windows.length) return this._toast("Añade al menos una franja", true), false;
+      for (const w of r.windows) {
+        if (!w.days.length) return this._toast("Cada franja necesita al menos un día", true), false;
+        if (!w.start || !w.end || hm(w.start) % 1440 === hm(w.end) % 1440)
+          return this._toast("Revisa las horas de las franjas", true), false;
+      }
+    }
+    const rule = { entity: r.entity, sensors: r.sensors, delay, mode: r.mode, windows: r.mode === "windows" ? r.windows : [], enabled: r.enabled };
+    try {
+      await this._ws("climate_planner/presence/save", { rule });
+      if (r._orig && r._orig !== r.entity) await this._ws("climate_planner/presence/delete", { entity: r._orig });
+    } catch (_e) {
+      return false;
+    }
+    this._pedit = null;
+    this._toast("Regla guardada");
+    return true;
+  }
+
   _refreshPreview() {
     const p = this.shadowRoot.getElementById("preview");
     if (p && this._edit) p.innerHTML = gridHTML(this._edit.slots);
@@ -436,6 +565,58 @@ class ClimatePlannerPanel extends HTMLElement {
           e.seasons = e.seasons.includes(btn.dataset.season)
             ? e.seasons.filter((x) => x !== btn.dataset.season)
             : SEASONS.map(([k]) => k).filter((k) => k === btn.dataset.season || e.seasons.includes(k));
+          break;
+        case "view":
+          this._view = btn.dataset.view;
+          this._confirmDel = null;
+          break;
+        case "pnew": {
+          const used = new Set((this._data.presence_rules || []).map((x) => x.entity));
+          const free = this._climates().find((c) => !used.has(c.id));
+          this._pedit = { entity: free?.id || "", sensors: [], delay: 15, mode: "outside", windows: [], enabled: true };
+          break;
+        }
+        case "pedit": {
+          const r = clone((this._data.presence_rules || []).find((x) => x.entity === btn.dataset.ent));
+          r._orig = r.entity;
+          this._pedit = r;
+          break;
+        }
+        case "pdel":
+          if (this._confirmDel !== "p:" + btn.dataset.ent) {
+            this._confirmDel = "p:" + btn.dataset.ent;
+            break;
+          }
+          this._confirmDel = null;
+          await this._ws("climate_planner/presence/delete", { entity: btn.dataset.ent });
+          this._toast("Regla eliminada");
+          break;
+        case "psensor": {
+          const p = this._pedit;
+          const id = btn.dataset.sensor;
+          p.sensors = p.sensors.includes(id) ? p.sensors.filter((x) => x !== id) : [...p.sensors, id];
+          break;
+        }
+        case "wadd":
+          this._pedit.windows.push({ days: [0, 1, 2, 3, 4, 5, 6], start: "09:00", end: "14:00" });
+          break;
+        case "wdel":
+          this._pedit.windows.splice(i, 1);
+          break;
+        case "wday": {
+          const w = this._pedit.windows[i];
+          const d = Number(btn.dataset.day);
+          w.days = w.days.includes(d) ? w.days.filter((x) => x !== d) : [...w.days, d].sort();
+          break;
+        }
+        case "wpreset":
+          this._pedit.windows[i].days = { wk: [0, 1, 2, 3, 4], we: [5, 6], all: [0, 1, 2, 3, 4, 5, 6] }[btn.dataset.p];
+          break;
+        case "pcancel":
+          this._pedit = null;
+          break;
+        case "psave":
+          if (!(await this._savePresence())) return;
           break;
         case "slot-del":
           e.slots.splice(i, 1);
@@ -542,6 +723,28 @@ class ClimatePlannerPanel extends HTMLElement {
       this._render();
       return;
     }
+    if (t.dataset.ptoggle) {
+      const r = clone((this._data.presence_rules || []).find((x) => x.entity === t.dataset.ptoggle));
+      r.enabled = t.checked;
+      try {
+        await this._ws("climate_planner/presence/save", { rule: r });
+      } catch (_e) { /* toast shown */ }
+      this._render();
+      return;
+    }
+    if (t.dataset.p && this._pedit) {
+      const k = t.dataset.p;
+      if (k === "all") this._pAll = t.checked;
+      else if (k === "enabled") this._pedit.enabled = t.checked;
+      else if (k === "delay") this._pedit.delay = t.value;
+      else this._pedit[k] = t.value;
+      if (k !== "delay") this._render();
+      return;
+    }
+    if (t.dataset.w && this._pedit) {
+      this._pedit.windows[Number(t.dataset.i)][t.dataset.w] = t.value;
+      return;
+    }
     if (t.dataset.point !== undefined && this._edit) {
       const s = this._edit.slots[Number(t.dataset.point)];
       if (t.checked) s.end = null;
@@ -563,6 +766,11 @@ class ClimatePlannerPanel extends HTMLElement {
 
   _onInput(ev) {
     const t = ev.target;
+    if (this._pedit) {
+      if (t.dataset.p === "delay") this._pedit.delay = t.value;
+      if (t.dataset.w) this._pedit.windows[Number(t.dataset.i)][t.dataset.w] = t.value;
+      return;
+    }
     if (!this._edit) return;
     if (t.dataset.e === "name") {
       this._edit.name = t.value;

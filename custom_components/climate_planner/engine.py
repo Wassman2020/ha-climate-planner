@@ -167,3 +167,21 @@ def season_boundary(
         if best is None or candidate > best[0]:
             best = (candidate, entry["season"])
     return best
+
+
+PRESENCE_MODES = ("always", "outside", "windows")
+
+
+def presence_rule_applies(
+    rule: dict[str, Any], weekday: int, minute: int, in_schedule: bool
+) -> bool:
+    """Whether an "off when nobody is there" rule is in force right now."""
+    mode = rule.get("mode", "always")
+    if mode == "outside":
+        return not in_schedule
+    if mode == "windows":
+        return any(
+            minutes_into_slot(w, weekday, minute) is not None
+            for w in rule.get("windows", [])
+        )
+    return True

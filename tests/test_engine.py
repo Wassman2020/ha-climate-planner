@@ -97,3 +97,13 @@ def test_point_actions():
 def test_resync_ignores_point_only_schedules():
     off = {"days": [0, 1, 2, 3, 4, 5, 6], "start": "02:00", "end": None, "hvac_mode": "off"}
     assert engine.desired_state(sched(off), MON, m("10:00")) is None
+
+
+def test_presence_applies():
+    w = {"mode": "windows", "windows": [{"days": [0], "start": "22:00", "end": "02:00"}]}
+    assert engine.presence_rule_applies(w, MON, m("23:00"), False)
+    assert engine.presence_rule_applies(w, TUE, m("01:00"), False)
+    assert not engine.presence_rule_applies(w, TUE, m("03:00"), False)
+    assert engine.presence_rule_applies({"mode": "outside"}, MON, 0, False)
+    assert not engine.presence_rule_applies({"mode": "outside"}, MON, 0, True)
+    assert engine.presence_rule_applies({"mode": "always"}, MON, 0, True)

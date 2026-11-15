@@ -87,6 +87,53 @@ SCHEDULE_SCHEMA = vol.All(
     _legacy_season, vol.Schema(SCHEDULE_FIELDS, extra=vol.REMOVE_EXTRA)
 )
 
+def _check_window(window: dict) -> dict:
+    if engine.parse_hm(window["start"]) % 1440 == engine.parse_hm(window["end"]) % 1440:
+        raise vol.Invalid("La hora de inicio y la de fin no pueden ser iguales")
+    window["days"] = sorted(set(window["days"]))
+    return window
+
+
+WINDOW_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required("days"): vol.All(
+                [vol.All(vol.Coerce(int), vol.Range(min=0, max=6))], vol.Length(min=1)
+            ),
+            vol.Required("start"): _time,
+            vol.Required("end"): _time,
+        },
+        extra=vol.REMOVE_EXTRA,
+    ),
+    _check_window,
+)
+
+
+def _check_presence(rule: dict) -> dict:
+    if rule["mode"] == "windows" and not rule["windows"]:
+        raise vol.Invalid("Añade al menos una franja horaria")
+    return rule
+
+
+PRESENCE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required("entity"): cv.entity_domain("climate"),
+            vol.Required("sensors"): vol.All(
+                cv.ensure_list, [cv.entity_id], vol.Length(min=1)
+            ),
+            vol.Optional("delay", default=15): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=720)
+            ),
+            vol.Optional("mode", default="always"): vol.In(engine.PRESENCE_MODES),
+            vol.Optional("windows", default=list): [WINDOW_SCHEMA],
+            vol.Optional("enabled", default=True): cv.boolean,
+        },
+        extra=vol.REMOVE_EXTRA,
+    ),
+    _check_presence,
+)
+
 SEASON_DATE_SCHEMA = vol.Schema(
     {
         vol.Required("season"): vol.In(SEASONS),

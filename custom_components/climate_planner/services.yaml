@@ -53,3 +53,43 @@ delete_schedule:
       selector:
         text:
 list_schedules:
+save_presence_rule:
+  fields:
+    entity:
+      required: true
+      selector:
+        entity:
+          domain: climate
+    sensors:
+      required: true
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+    delay:
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 720
+          unit_of_measurement: min
+    mode:
+      default: always
+      selector:
+        select:
+          options: [always, outside, windows]
+    windows:
+      example: '[{"days": [0,1,2,3,4], "start": "09:00", "end": "14:00"}]'
+      selector:
+        object:
+    enabled:
+      default: true
+      selector:
+        boolean:
+delete_presence_rule:
+  fields:
+    entity:
+      required: true
+      selector:
+        entity:
+          domain: climate

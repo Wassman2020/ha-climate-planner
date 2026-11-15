@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
 from typing import Any
 import uuid
@@ -45,6 +45,7 @@ class Planner:
         stored = await self.store.async_load() or {}
         data = default_data()
         data.update(stored)
+        data.setdefault("presence_rules", [])
         for schedule in data["schedules"]:
             if "seasons" not in schedule:
                 schedule["seasons"] = [schedule.pop("season", self.data["season"])]
@@ -98,6 +99,62 @@ class Planner:
                 continue
             if action:
                 await self._async_apply(schedule, *action, reason="schedule")
+        await self._async_check_presence(now)
+
+    # ----------------------------------------------------------------- presence
+    def _in_schedule(self, entity_id: str, weekday: int, minute: int) -> bool:
+        return any(
+            entity_id in s["entities"] and engine.active_slot(s, weekday, minute)
+            for s in self.active_schedules()
+        )
+
+    def presence_status(self, rule: dict[str, Any]) -> tuple[bool | None, datetime | None]:
+        """(somebody_there, empty_since). None when no sensor is usable."""
+        valid = [
+            st
+            for sid in rule["sensors"]
+            if (st := self.hass.states.get(sid)) is not None and st.state in ("on", "off")
+        ]
+        if not valid:
+            return None, None
+        if any(st.state == "on" for st in valid):
+            return True, None
+        return False, max(st.last_changed for st in valid)
+
+    async def _async_check_presence(self, now: datetime) -> None:
+        weekday, minute = now.weekday(), now.hour * 60 + now.minute
+        for rule in self.data["presence_rules"]:
+            if not rule.get("enabled", True):
+                continue
+            entity_id = rule["entity"]
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("off", STATE_UNAVAILABLE, STATE_UNKNOWN):
+                continue
+            present, empty_since = self.presence_status(rule)
+            if present is not False or empty_since is None:
+                continue
+            # Grace period counts from whichever is later: room empty or AC turned on.
+            since = max(empty_since, state.last_changed)
+            if now - since < timedelta(minutes=rule["delay"]):
+                continue
+            in_schedule = self._in_schedule(entity_id, weekday, minute)
+            if not engine.presence_rule_applies(rule, weekday, minute, in_schedule):
+                continue
+            _LOGGER.info("%s: sin presencia desde %s, se apaga", entity_id, empty_since)
+            await self._async_apply_entity(entity_id, "off", None)
+            self._record(entity_id, "Presencia", "off", None, "presence")
+
+    async def async_save_presence_rule(self, rule: dict[str, Any]) -> None:
+        rules = [r for r in self.data["presence_rules"] if r["entity"] != rule["entity"]]
+        rules.append(rule)
+        self.data["presence_rules"] = rules
+        self._changed()
+
+    async def async_delete_presence_rule(self, entity_id: str) -> None:
+        self.data["presence_rules"] = [
+            r for r in self.data["presence_rules"] if r["entity"] != entity_id
+        ]
+        self._changed()
 
     # ------------------------------------------------------------------ seasons
     async def _async_check_season(self, today: date) -> bool:
@@ -192,18 +249,23 @@ class Planner:
     ) -> None:
         for entity_id in schedule["entities"]:
             await self._async_apply_entity(entity_id, kind, slot)
-            self.last_actions[entity_id] = {
-                "time": dt_util.now().isoformat(),
-                "schedule": schedule["name"],
-                "action": kind,
-                "hvac_mode": slot.get("hvac_mode") if slot else "off",
-                "temperature": slot.get("temperature") if slot else None,
-                "reason": reason,
-            }
-            self.hass.bus.async_fire(
-                EVENT_ACTION,
-                {"entity_id": entity_id, **self.last_actions[entity_id]},
-            )
+            self._record(entity_id, schedule["name"], kind, slot, reason)
+
+    @callback
+    def _record(
+        self, entity_id: str, source: str, kind: str, slot: dict | None, reason: str
+    ) -> None:
+        self.last_actions[entity_id] = {
+            "time": dt_util.now().isoformat(),
+            "schedule": source,
+            "action": kind,
+            "hvac_mode": slot.get("hvac_mode") if slot else "off",
+            "temperature": slot.get("temperature") if slot else None,
+            "reason": reason,
+        }
+        self.hass.bus.async_fire(
+            EVENT_ACTION, {"entity_id": entity_id, **self.last_actions[entity_id]}
+        )
 
     async def _async_apply_entity(
         self, entity_id: str, kind: str, slot: dict | None

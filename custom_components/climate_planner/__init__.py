@@ -17,11 +17,12 @@ from homeassistant.core import (
     SupportsResponse,
 )
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 
 from . import websocket
 from .const import DOMAIN, PANEL_COMPONENT, PANEL_PATH, SEASONS, STATIC_URL, VERSION
 from .planner import Planner
-from .schema import SCHEDULE_SCHEMA
+from .schema import PRESENCE_SCHEMA, SCHEDULE_SCHEMA
 
 PLATFORMS = [Platform.SELECT, Platform.SWITCH]
 
@@ -30,7 +31,17 @@ SERVICE_SET_SEASON = "set_season"
 SERVICE_SAVE = "save_schedule"
 SERVICE_DELETE = "delete_schedule"
 SERVICE_LIST = "list_schedules"
-SERVICES = (SERVICE_RESYNC, SERVICE_SET_SEASON, SERVICE_SAVE, SERVICE_DELETE, SERVICE_LIST)
+SERVICE_SAVE_PRESENCE = "save_presence_rule"
+SERVICE_DELETE_PRESENCE = "delete_presence_rule"
+SERVICES = (
+    SERVICE_RESYNC,
+    SERVICE_SET_SEASON,
+    SERVICE_SAVE,
+    SERVICE_DELETE,
+    SERVICE_LIST,
+    SERVICE_SAVE_PRESENCE,
+    SERVICE_DELETE_PRESENCE,
+)
 
 
 def _get_planner(hass: HomeAssistant) -> Planner:
@@ -91,6 +102,21 @@ def _async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, SERVICE_LIST, list_schedules, supports_response=SupportsResponse.ONLY
+    )
+    async def save_presence(call: ServiceCall) -> None:
+        await _get_planner(hass).async_save_presence_rule(dict(call.data))
+
+    async def delete_presence(call: ServiceCall) -> None:
+        await _get_planner(hass).async_delete_presence_rule(call.data["entity"])
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_SAVE_PRESENCE, save_presence, schema=PRESENCE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DELETE_PRESENCE,
+        delete_presence,
+        schema=vol.Schema({vol.Required("entity"): cv.entity_id}),
     )
     hass.services.async_register(DOMAIN, SERVICE_RESYNC, resync)
     hass.services.async_register(

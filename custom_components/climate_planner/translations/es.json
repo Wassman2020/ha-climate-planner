@@ -101,6 +101,46 @@
     "list_schedules": {
       "name": "Listar horarios",
       "description": "Devuelve la configuración completa."
+    },
+    "save_presence_rule": {
+      "name": "Guardar regla de presencia",
+      "description": "Apaga el equipo si está encendido y los sensores no detectan a nadie durante el retardo. Modos: always (siempre), outside (fuera de las programaciones), windows (en las franjas indicadas).",
+      "fields": {
+        "entity": {
+          "name": "Equipo",
+          "description": "Equipo de climatización."
+        },
+        "sensors": {
+          "name": "Sensores",
+          "description": "Sensores de presencia, radar o movimiento."
+        },
+        "delay": {
+          "name": "Retardo",
+          "description": "Minutos sin presencia antes de apagar."
+        },
+        "mode": {
+          "name": "Cuándo",
+          "description": "always, outside o windows."
+        },
+        "windows": {
+          "name": "Franjas",
+          "description": "Franjas horarias para el modo windows."
+        },
+        "enabled": {
+          "name": "Activa",
+          "description": "Si la regla está activa."
+        }
+      }
+    },
+    "delete_presence_rule": {
+      "name": "Eliminar regla de presencia",
+      "description": "Elimina la regla de un equipo.",
+      "fields": {
+        "entity": {
+          "name": "Equipo",
+          "description": "Equipo de climatización."
+        }
+      }
     }
   }
 }

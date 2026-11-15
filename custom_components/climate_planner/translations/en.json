@@ -101,6 +101,46 @@
     "list_schedules": {
       "name": "List schedules",
       "description": "Return the full configuration."
+    },
+    "save_presence_rule": {
+      "name": "Save presence rule",
+      "description": "Turn the unit off if it is on and the sensors detect nobody for the delay. Modes: always, outside (outside schedules), windows (within given time windows).",
+      "fields": {
+        "entity": {
+          "name": "Device",
+          "description": "Climate entity."
+        },
+        "sensors": {
+          "name": "Sensors",
+          "description": "Presence, radar or motion sensors."
+        },
+        "delay": {
+          "name": "Delay",
+          "description": "Minutes without presence before turning off."
+        },
+        "mode": {
+          "name": "When",
+          "description": "always, outside or windows."
+        },
+        "windows": {
+          "name": "Windows",
+          "description": "Time windows for windows mode."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the rule is enabled."
+        }
+      }
+    },
+    "delete_presence_rule": {
+      "name": "Delete presence rule",
+      "description": "Delete a device's rule.",
+      "fields": {
+        "entity": {
+          "name": "Device",
+          "description": "Climate entity."
+        }
+      }
     }
   }
 }

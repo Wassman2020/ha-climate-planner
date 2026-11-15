@@ -1,7 +1,7 @@
 """Constants for Climate Planner."""
 
 DOMAIN = "climate_planner"
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 
 STORAGE_KEY = f"{DOMAIN}.data"
 STORAGE_VERSION = 1
@@ -36,4 +36,5 @@ def default_data() -> dict:
         "season_dates": [dict(d) for d in DEFAULT_SEASON_DATES],
         "last_boundary": None,
         "schedules": [],
+        "presence_rules": [],
     }

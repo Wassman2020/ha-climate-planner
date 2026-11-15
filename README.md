@@ -11,6 +11,7 @@ Programación semanal **por temporadas** (Invierno / Entretiempo / Verano) para 
 - Franjas que cruzan la medianoche (22:00 → 06:00).
 - Opción por horario de **apagar el equipo al terminar cada franja**.
 - Funciona por eventos: solo actúa al empezar o acabar una franja, así que si cambias algo a mano no lo pisa hasta el siguiente evento.
+- **Presencia**: por equipo, eliges sensores de presencia/radar/movimiento y un retardo. Si el equipo está encendido y nadie es detectado durante ese tiempo, se apaga: siempre, solo fuera de las programaciones, o solo en las franjas que indiques. El retardo cuenta desde que la habitación se queda vacía o desde que se enciende el equipo (lo que sea más tarde); los sensores no disponibles se ignoran.
 - Al arrancar HA o al cambiar de temporada aplica el estado que toca en ese momento (configurable).
 
 ## Entidades y servicios
@@ -23,6 +24,7 @@ Programación semanal **por temporadas** (Invierno / Entretiempo / Verano) para 
 
 - `climate_planner.set_season` (`season: winter | transition | summer`)
 - `climate_planner.resync`: aplica ahora el estado de los horarios activos.
+- `climate_planner.save_presence_rule` / `delete_presence_rule`: reglas de presencia (`mode`: `always`, `outside` o `windows`).
 - `climate_planner.save_schedule` / `delete_schedule` / `list_schedules`: gestionar horarios desde scripts (días: 0 = lunes … 6 = domingo; una franja sin `end` es puntual).
 - Cada acción lanza el evento `climate_planner_action` (útil para notificaciones o logbook).
 
