@@ -7,6 +7,8 @@ Conventions
   slot meaning midnight.
 * A slot whose end is <= its start crosses midnight; its ``days`` refer to the
   day on which it *starts*.
+* A slot without ``end`` is a *point* action: it fires once at ``start``
+  (e.g. a safety "off at 23:00") and is never considered "running".
 """
 
 from __future__ import annotations
@@ -45,6 +47,10 @@ def parse_md(value: str) -> tuple[int, int]:
     return month, day
 
 
+def is_point(slot: dict[str, Any]) -> bool:
+    return not slot.get("end")
+
+
 def _bounds(slot: dict[str, Any]) -> tuple[int, int, bool]:
     start = parse_hm(slot["start"]) % MINUTES_PER_DAY
     end = parse_hm(slot["end"]) % MINUTES_PER_DAY
@@ -53,19 +59,23 @@ def _bounds(slot: dict[str, Any]) -> tuple[int, int, bool]:
 
 def validate_slot(slot: dict[str, Any]) -> None:
     """Raise ValueError if a slot is not usable."""
-    start, end, _ = _bounds(slot)
-    if start == end:
-        raise ValueError("La hora de inicio y la de fin no pueden ser iguales")
+    parse_hm(slot["start"])
+    if not is_point(slot):
+        start, end, _ = _bounds(slot)
+        if start == end:
+            raise ValueError("La hora de inicio y la de fin no pueden ser iguales")
     if not slot.get("days"):
         raise ValueError("Cada franja necesita al menos un día")
 
 
 def slot_starts_at(slot: dict[str, Any], weekday: int, minute: int) -> bool:
-    start, _, _ = _bounds(slot)
+    start = parse_hm(slot["start"]) % MINUTES_PER_DAY
     return start == minute and weekday in slot["days"]
 
 
 def slot_ends_at(slot: dict[str, Any], weekday: int, minute: int) -> bool:
+    if is_point(slot):
+        return False
     _, end, crosses = _bounds(slot)
     if end != minute:
         return False
@@ -75,6 +85,8 @@ def slot_ends_at(slot: dict[str, Any], weekday: int, minute: int) -> bool:
 
 def minutes_into_slot(slot: dict[str, Any], weekday: int, minute: int) -> int | None:
     """Return how many minutes the slot has been running, or None if inactive."""
+    if is_point(slot):
+        return None
     start, end, crosses = _bounds(slot)
     days = slot["days"]
     if not crosses:
@@ -108,7 +120,12 @@ def action_at(
     """
     starting = [s for s in schedule.get("slots", []) if slot_starts_at(s, weekday, minute)]
     if starting:
-        return ("apply", starting[-1])
+        # A real slot beats a point action at the same minute.
+        starting.sort(key=lambda s: not is_point(s))
+        chosen = starting[-1]
+        if is_point(chosen) and chosen.get("hvac_mode") in (None, "", "off"):
+            return ("off", None)
+        return ("apply", chosen)
     if not schedule.get("off_outside", True):
         return None
     if any(slot_ends_at(s, weekday, minute) for s in schedule.get("slots", [])):
@@ -124,7 +141,8 @@ def desired_state(
     slot = active_slot(schedule, weekday, minute)
     if slot is not None:
         return ("apply", slot)
-    if schedule.get("off_outside", True):
+    has_ranges = any(not is_point(s) for s in schedule.get("slots", []))
+    if has_ranges and schedule.get("off_outside", True):
         return ("off", None)
     return None
 

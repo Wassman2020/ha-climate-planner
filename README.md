@@ -5,7 +5,8 @@ Programación semanal **por temporadas** (Invierno / Entretiempo / Verano) para 
 ## Qué hace
 
 - Horarios semanales con franjas: días, hora de inicio y fin, modo (calor, frío, auto…), consigna y, si el equipo lo admite, ventilador.
-- Cada horario pertenece a una temporada y solo se ejecuta cuando esa temporada está activa.
+- Cada horario se asigna a una o varias temporadas (o a las tres = siempre) y solo se ejecuta cuando alguna está activa.
+- **Acciones puntuales**: franjas sin hora de fin, p. ej. «apagar a las 23:00» como apagado de seguridad.
 - Cambio de temporada manual o automático por fechas (p. ej. 1 abr → Entretiempo, 15 jun → Verano…). Un cambio manual se respeta hasta la siguiente fecha.
 - Franjas que cruzan la medianoche (22:00 → 06:00).
 - Opción por horario de **apagar el equipo al terminar cada franja**.
@@ -22,6 +23,7 @@ Programación semanal **por temporadas** (Invierno / Entretiempo / Verano) para 
 
 - `climate_planner.set_season` (`season: winter | transition | summer`)
 - `climate_planner.resync`: aplica ahora el estado de los horarios activos.
+- `climate_planner.save_schedule` / `delete_schedule` / `list_schedules`: gestionar horarios desde scripts (días: 0 = lunes … 6 = domingo; una franja sin `end` es puntual).
 - Cada acción lanza el evento `climate_planner_action` (útil para notificaciones o logbook).
 
 ## Instalación

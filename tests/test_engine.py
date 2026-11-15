@@ -78,3 +78,22 @@ def test_validation():
     with pytest.raises(ValueError):
         engine.parse_md("02-30")
     assert engine.parse_md("02-29") == (2, 29)
+
+
+def test_point_actions():
+    off23 = {"days": [0, 1, 2, 3], "start": "23:00", "end": None, "hvac_mode": "off"}
+    heat = {"days": [0, 1, 2, 3], "start": "20:00", "end": "22:30", "hvac_mode": "heat", "temperature": 22}
+    s = sched(heat, off23)
+    engine.validate_slot(off23)
+    assert engine.action_at(s, MON, m("23:00")) == ("off", None)
+    assert engine.action_at(s, MON, m("22:30")) == ("off", None)
+    assert engine.active_slot(s, MON, m("23:00")) is None
+    assert engine.desired_state(s, MON, m("21:00")) == ("apply", heat)
+    # real slot wins over an off point at the same minute
+    on23 = {**heat, "start": "23:00", "end": "23:30"}
+    assert engine.action_at(sched(off23, on23), MON, m("23:00")) == ("apply", on23)
+
+
+def test_resync_ignores_point_only_schedules():
+    off = {"days": [0, 1, 2, 3, 4, 5, 6], "start": "02:00", "end": None, "hvac_mode": "off"}
+    assert engine.desired_state(sched(off), MON, m("10:00")) is None

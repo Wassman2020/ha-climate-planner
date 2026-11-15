@@ -10,3 +10,46 @@ set_season:
             - transition
             - summer
           translation_key: season
+save_schedule:
+  fields:
+    id:
+      example: salon_invierno
+      selector:
+        text:
+    name:
+      required: true
+      selector:
+        text:
+    seasons:
+      required: true
+      selector:
+        select:
+          multiple: true
+          options: [winter, transition, summer]
+          translation_key: season
+    entities:
+      required: true
+      selector:
+        entity:
+          domain: climate
+          multiple: true
+    enabled:
+      default: true
+      selector:
+        boolean:
+    off_outside:
+      default: true
+      selector:
+        boolean:
+    slots:
+      required: true
+      example: '[{"days": [0,1,2,3,4], "start": "07:00", "end": "09:00", "hvac_mode": "heat", "temperature": 21}]'
+      selector:
+        object:
+delete_schedule:
+  fields:
+    schedule_id:
+      required: true
+      selector:
+        text:
+list_schedules:

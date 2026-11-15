@@ -53,6 +53,54 @@
           "description": "Temporada a activar."
         }
       }
+    },
+    "save_schedule": {
+      "name": "Guardar horario",
+      "description": "Crea o reemplaza un horario (mismo id = reemplazar). Días: 0 = lunes … 6 = domingo. Una franja sin 'end' es una acción puntual.",
+      "fields": {
+        "id": {
+          "name": "ID",
+          "description": "Identificador; si existe se reemplaza."
+        },
+        "name": {
+          "name": "Nombre",
+          "description": "Nombre visible."
+        },
+        "seasons": {
+          "name": "Temporadas",
+          "description": "Temporadas en las que se ejecuta."
+        },
+        "entities": {
+          "name": "Equipos",
+          "description": "Entidades climate."
+        },
+        "enabled": {
+          "name": "Activo",
+          "description": "Si el horario está activo."
+        },
+        "off_outside": {
+          "name": "Apagar al terminar",
+          "description": "Apagar al terminar cada franja."
+        },
+        "slots": {
+          "name": "Franjas",
+          "description": "Lista de franjas."
+        }
+      }
+    },
+    "delete_schedule": {
+      "name": "Eliminar horario",
+      "description": "Elimina un horario.",
+      "fields": {
+        "schedule_id": {
+          "name": "ID",
+          "description": "ID del horario."
+        }
+      }
+    },
+    "list_schedules": {
+      "name": "Listar horarios",
+      "description": "Devuelve la configuración completa."
     }
   }
 }

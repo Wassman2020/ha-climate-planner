@@ -53,6 +53,54 @@
           "description": "Season to activate."
         }
       }
+    },
+    "save_schedule": {
+      "name": "Save schedule",
+      "description": "Create or replace a schedule (same id = replace). Days: 0 = Monday … 6 = Sunday. A slot without 'end' is a point action.",
+      "fields": {
+        "id": {
+          "name": "ID",
+          "description": "Identifier; replaced if it exists."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Display name."
+        },
+        "seasons": {
+          "name": "Seasons",
+          "description": "Seasons in which it runs."
+        },
+        "entities": {
+          "name": "Devices",
+          "description": "Climate entities."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the schedule is enabled."
+        },
+        "off_outside": {
+          "name": "Off at end",
+          "description": "Turn off when each slot ends."
+        },
+        "slots": {
+          "name": "Slots",
+          "description": "List of slots."
+        }
+      }
+    },
+    "delete_schedule": {
+      "name": "Delete schedule",
+      "description": "Delete a schedule.",
+      "fields": {
+        "schedule_id": {
+          "name": "ID",
+          "description": "Schedule ID."
+        }
+      }
+    },
+    "list_schedules": {
+      "name": "List schedules",
+      "description": "Return the full configuration."
     }
   }
 }

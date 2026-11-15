@@ -38,6 +38,7 @@ def _check_slot(slot: dict) -> dict:
     except ValueError as err:
         raise vol.Invalid(str(err)) from err
     slot["days"] = sorted(set(slot["days"]))
+    slot["end"] = slot["end"] or None
     return slot
 
 
@@ -46,7 +47,7 @@ SLOT_SCHEMA = vol.All(
         {
             vol.Required("days"): [vol.All(vol.Coerce(int), vol.Range(min=0, max=6))],
             vol.Required("start"): _time,
-            vol.Required("end"): _time,
+            vol.Optional("end", default=None): vol.Any(None, "", _time),
             vol.Optional("hvac_mode", default=None): vol.Any(None, cv.string),
             vol.Optional("temperature", default=None): vol.Any(
                 None, vol.All(vol.Coerce(float), vol.Range(min=-20, max=90))
@@ -58,19 +59,32 @@ SLOT_SCHEMA = vol.All(
     _check_slot,
 )
 
-SCHEDULE_SCHEMA = vol.Schema(
-    {
+def _legacy_season(value: Any) -> Any:
+    if isinstance(value, dict) and "season" in value and "seasons" not in value:
+        value = {**value, "seasons": [value["season"]]}
+    return value
+
+
+def _unique(value: list) -> list:
+    return [s for s in SEASONS if s in value]
+
+
+SCHEDULE_FIELDS = {
         vol.Optional("id"): vol.Any(None, cv.string),
         vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=80)),
-        vol.Required("season"): vol.In(SEASONS),
+        vol.Required("seasons"): vol.All(
+            cv.ensure_list, [vol.In(SEASONS)], vol.Length(min=1), _unique
+        ),
         vol.Optional("enabled", default=True): cv.boolean,
         vol.Optional("off_outside", default=True): cv.boolean,
         vol.Required("entities"): vol.All(
             cv.ensure_list, [cv.entity_domain("climate")], vol.Length(min=1)
         ),
         vol.Required("slots"): [SLOT_SCHEMA],
-    },
-    extra=vol.REMOVE_EXTRA,
+}
+
+SCHEDULE_SCHEMA = vol.All(
+    _legacy_season, vol.Schema(SCHEDULE_FIELDS, extra=vol.REMOVE_EXTRA)
 )
 
 SEASON_DATE_SCHEMA = vol.Schema(

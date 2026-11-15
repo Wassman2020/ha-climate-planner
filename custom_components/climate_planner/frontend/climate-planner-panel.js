@@ -9,7 +9,7 @@ const SEASON_LABEL = Object.fromEntries(SEASONS);
 const DAYS = ["L", "M", "X", "J", "V", "S", "D"];
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const MODE_LABEL = {
-  off: "Apagado", heat: "Calor", cool: "Frío", heat_cool: "Auto", auto: "Auto",
+  off: "Apagar", heat: "Calor", cool: "Frío", heat_cool: "Auto", auto: "Auto",
   dry: "Deshumidificar", fan_only: "Ventilador",
 };
 const MODE_COLOR = {
@@ -34,7 +34,7 @@ const modeLabel = (m) => MODE_LABEL[m] || m || "—";
 function segments(slots) {
   const days = Array.from({ length: 7 }, () => []);
   for (const s of slots) {
-    if (!s.start || !s.end) continue;
+    if (!s.start || !s.end) continue; // point actions are drawn separately
     const a = hm(s.start) % 1440;
     const b = hm(s.end) % 1440;
     if (a === b) continue;
@@ -49,8 +49,15 @@ function segments(slots) {
   return days;
 }
 
+function points(slots) {
+  const days = Array.from({ length: 7 }, () => []);
+  for (const s of slots) if (s.start && !s.end) for (const d of s.days) days[d].push(s);
+  return days;
+}
+
 function gridHTML(slots) {
   const segs = segments(slots);
+  const pts = points(slots);
   const rows = DAYS.map((label, i) => {
     const blocks = segs[i]
       .map((g) => {
@@ -58,6 +65,8 @@ function gridHTML(slots) {
         const title = `${g.s.start}–${g.s.end} · ${modeLabel(g.s.hvac_mode)} ${t}`;
         return `<div class="seg" title="${esc(title)}" style="left:${g.from / 14.4}%;width:${(g.to - g.from) / 14.4}%;background:${MODE_COLOR[g.s.hvac_mode] || "var(--primary-color)"}">${g.to - g.from >= 150 ? esc(t) : ""}</div>`;
       })
+      .join("") + pts[i]
+      .map((p) => `<div class="pt ${p.hvac_mode === "off" ? "off" : ""}" title="${esc(`${p.start} · ${modeLabel(p.hvac_mode)}`)}" style="left:${hm(p.start) / 14.4}%;${p.hvac_mode === "off" ? "" : `background:${MODE_COLOR[p.hvac_mode] || "var(--primary-color)"}`}"></div>`)
       .join("");
     return `<div class="grow"><span class="dl">${label}</span><div class="bar">${blocks}</div></div>`;
   }).join("");
@@ -106,6 +115,10 @@ button.mini{padding:3px 8px;font-size:12px}
 .dl{width:14px;font-size:12px;color:var(--secondary-text-color)}
 .bar{position:relative;flex:1;height:20px;border-radius:5px;background:var(--secondary-background-color, #eee);overflow:hidden}
 .seg{position:absolute;top:0;bottom:0;border-radius:4px;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.pt{position:absolute;top:0;bottom:0;width:3px;margin-left:-1px;background:var(--primary-color)}
+.pt.off{background:var(--primary-text-color);opacity:.7}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid var(--divider-color);margin-left:6px;vertical-align:middle;color:var(--secondary-text-color)}
+.legend{font-size:11px;color:var(--secondary-text-color);margin-top:4px}
 .ticks{position:relative;flex:1;height:14px;font-size:10px;color:var(--secondary-text-color)}
 .ticks span{position:absolute;transform:translateX(-50%)}
 .ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}
@@ -195,9 +208,9 @@ class ClimatePlannerPanel extends HTMLElement {
 
   _body() {
     if (this._edit) return this._settingsCard() + this._editor();
-    const list = this._data.schedules.filter((s) => s.season === this._tab);
+    const list = this._data.schedules.filter((s) => s.seasons.includes(this._tab));
     const tabs = SEASONS.map(([k, l]) => {
-      const n = this._data.schedules.filter((s) => s.season === k).length;
+      const n = this._data.schedules.filter((s) => s.seasons.includes(k)).length;
       return `<button class="tab ${k === this._tab ? "on" : ""}" data-action="tab" data-season="${k}">${l} (${n})${k === this._data.season ? '<span class="dot" title="Temporada activa"></span>' : ""}</button>`;
     }).join("");
     return `${this._settingsCard()}
@@ -250,10 +263,10 @@ class ClimatePlannerPanel extends HTMLElement {
     const del = this._confirmDel === s.id ? "¿Seguro?" : "Eliminar";
     return `<div class="card ${s.enabled ? "" : "disabled"}">
       <div class="row between">
-        <div><div class="name">${esc(s.name)}</div><div class="sub">${ents}${lastTxt}</div></div>
+        <div><div class="name">${esc(s.name)}${s.seasons.length === 3 ? '<span class="badge">Siempre</span>' : s.seasons.length > 1 ? s.seasons.map((x) => `<span class="badge">${SEASON_LABEL[x]}</span>`).join("") : ""}</div><div class="sub">${ents}${lastTxt}</div></div>
         <label class="sw" title="Activo"><input type="checkbox" data-toggle="${s.id}" ${s.enabled ? "checked" : ""}></label>
       </div>
-      ${gridHTML(s.slots)}
+      ${gridHTML(s.slots)}<div class="legend">Las rayas finas son acciones puntuales (por ejemplo, apagados de seguridad).</div>
       <div class="row end">
         <button class="mini" data-action="apply" data-id="${s.id}">Aplicar</button>
         <button class="mini" data-action="dup" data-id="${s.id}">Duplicar</button>
@@ -275,7 +288,7 @@ class ClimatePlannerPanel extends HTMLElement {
     });
     const first = sel[0]?.attrs || {};
     return {
-      modes: [...modes],
+      modes: [...modes, "off"],
       fans: fans || [],
       min: first.min_temp ?? 7,
       max: first.max_temp ?? 35,
@@ -286,7 +299,7 @@ class ClimatePlannerPanel extends HTMLElement {
   _editor() {
     const e = this._edit;
     const info = this._modesFor(e.entities);
-    const sOpts = SEASONS.map(([k, l]) => `<option value="${k}" ${k === e.season ? "selected" : ""}>${l}</option>`).join("");
+    const seasonChips = SEASONS.map(([k, l]) => `<button class="chip ${e.seasons.includes(k) ? "on" : ""}" data-action="season" data-season="${k}">${l}</button>`).join("");
     const chips = this._climates()
       .map((c) => `<button class="chip ${e.entities.includes(c.id) ? "on" : ""}" data-action="ent" data-ent="${c.id}">${esc(c.name)}</button>`)
       .join("");
@@ -295,8 +308,8 @@ class ClimatePlannerPanel extends HTMLElement {
       <h3>${e.id ? "Editar horario" : "Nuevo horario"}</h3>
       <div class="row wrap">
         <label class="f" style="flex:1;min-width:180px">Nombre<input class="wide" data-e="name" value="${esc(e.name)}" placeholder="Ej. Salón invierno"></label>
-        <label class="f">Temporada<select data-e="season">${sOpts}</select></label>
       </div>
+      <div class="lbl">Temporadas</div><div class="chips">${seasonChips}</div>
       <label class="sw"><input type="checkbox" data-e="enabled" ${e.enabled ? "checked" : ""}> Activo</label>
       <label class="sw"><input type="checkbox" data-e="off_outside" ${e.off_outside ? "checked" : ""}> Apagar al terminar cada franja</label>
       <div class="lbl">Equipos</div><div class="chips">${chips}</div>
@@ -314,7 +327,7 @@ class ClimatePlannerPanel extends HTMLElement {
     const modes = [...info.modes];
     if (s.hvac_mode && !modes.includes(s.hvac_mode)) modes.push(s.hvac_mode);
     const mOpts = modes.map((m) => `<option value="${m}" ${m === s.hvac_mode ? "selected" : ""}>${modeLabel(m)}</option>`).join("");
-    const fan = info.fans.length
+    const fan = info.fans.length && s.hvac_mode !== "off"
       ? `<label class="f">Ventilador<select data-slot="fan_mode" data-i="${i}"><option value="">—</option>${info.fans
           .map((f) => `<option ${f === s.fan_mode ? "selected" : ""}>${esc(f)}</option>`)
           .join("")}</select></label>`
@@ -327,9 +340,10 @@ class ClimatePlannerPanel extends HTMLElement {
       </div>
       <div class="row wrap">
         <label class="f">Desde<input type="time" data-slot="start" data-i="${i}" value="${esc(s.start)}"></label>
-        <label class="f">Hasta<input type="time" data-slot="end" data-i="${i}" value="${esc(s.end)}"></label>
+        ${s.end ? `<label class="f">Hasta<input type="time" data-slot="end" data-i="${i}" value="${esc(s.end)}"></label>` : ""}
+        <label class="sw" style="font-size:13px"><input type="checkbox" data-point="${i}" ${s.end ? "" : "checked"}> Puntual</label>
         <label class="f">Modo<select data-slot="hvac_mode" data-i="${i}">${mOpts}</select></label>
-        <label class="f">Consigna °C<input type="number" data-slot="temperature" data-i="${i}" min="${info.min}" max="${info.max}" step="${info.step}" value="${s.temperature ?? ""}"></label>
+        <label class="f" ${s.hvac_mode === "off" ? 'style="display:none"' : ""}>Consigna °C<input type="number" data-slot="temperature" data-i="${i}" min="${info.min}" max="${info.max}" step="${info.step}" value="${s.temperature ?? ""}"></label>
         ${fan}
         <button class="mini danger" data-action="slot-del" data-i="${i}" style="margin-left:auto">✕</button>
       </div></div>`;
@@ -368,14 +382,14 @@ class ClimatePlannerPanel extends HTMLElement {
           return;
         case "apply":
           await this._ws("climate_planner/resync", { schedule_id: btn.dataset.id });
-          this._toast(this._schedule(btn.dataset.id)?.season === this._data.season
+          this._toast(this._schedule(btn.dataset.id)?.seasons.includes(this._data.season)
             ? "Horario aplicado"
             : "Este horario no es de la temporada activa");
           return;
         case "new": {
           const def = DEFAULTS[this._tab];
           this._edit = {
-            name: "", season: this._tab, enabled: true, off_outside: true, entities: [],
+            name: "", seasons: [this._tab], enabled: true, off_outside: true, entities: [],
             slots: [{ days: [0, 1, 2, 3, 4], start: "07:00", end: "09:00", hvac_mode: def.mode, temperature: def.temp, fan_mode: null }],
           };
           break;
@@ -412,12 +426,17 @@ class ClimatePlannerPanel extends HTMLElement {
         }
         case "slot-add": {
           const last = e.slots[e.slots.length - 1];
-          const def = DEFAULTS[e.season];
+          const def = DEFAULTS[e.seasons[0] || "winter"];
           e.slots.push(last
-            ? { ...clone(last), start: last.end, end: last.end === "23:00" ? "23:59" : String((Math.floor(hm(last.end) / 60) + 2) % 24).padStart(2, "0") + ":00" }
+            ? !last.end ? { ...clone(last), start: last.start } : { ...clone(last), start: last.end, end: last.end === "23:00" ? "23:59" : String((Math.floor(hm(last.end) / 60) + 2) % 24).padStart(2, "0") + ":00" }
             : { days: [0, 1, 2, 3, 4], start: "07:00", end: "09:00", hvac_mode: def.mode, temperature: def.temp, fan_mode: null });
           break;
         }
+        case "season":
+          e.seasons = e.seasons.includes(btn.dataset.season)
+            ? e.seasons.filter((x) => x !== btn.dataset.season)
+            : SEASONS.map(([k]) => k).filter((k) => k === btn.dataset.season || e.seasons.includes(k));
+          break;
         case "slot-del":
           e.slots.splice(i, 1);
           break;
@@ -464,9 +483,10 @@ class ClimatePlannerPanel extends HTMLElement {
     if (!e.name.trim()) return this._toast("Ponle un nombre al horario", true), false;
     if (!e.entities.length) return this._toast("Elige al menos un equipo", true), false;
     if (!e.slots.length) return this._toast("Añade al menos una franja", true), false;
+    if (!e.seasons.length) return this._toast("Elige al menos una temporada", true), false;
     for (const s of e.slots) {
       if (!s.days.length) return this._toast("Cada franja necesita al menos un día", true), false;
-      if (!s.start || !s.end || hm(s.start) % 1440 === hm(s.end) % 1440)
+      if (!s.start || (s.end && hm(s.start) % 1440 === hm(s.end) % 1440))
         return this._toast("Revisa las horas: inicio y fin no pueden coincidir", true), false;
     }
     const payload = clone(e);
@@ -474,13 +494,14 @@ class ClimatePlannerPanel extends HTMLElement {
     payload.slots.forEach((s) => {
       s.temperature = s.temperature === "" || s.temperature == null ? null : Number(s.temperature);
       s.fan_mode = s.fan_mode || null;
+      s.end = s.end || null;
     });
     try {
       await this._ws("climate_planner/schedule/save", { schedule: payload });
     } catch (_err) {
       return false;
     }
-    this._tab = e.season;
+    if (!e.seasons.includes(this._tab)) this._tab = e.seasons[0];
     this._edit = null;
     this._toast("Horario guardado");
     return true;
@@ -521,9 +542,20 @@ class ClimatePlannerPanel extends HTMLElement {
       this._render();
       return;
     }
+    if (t.dataset.point !== undefined && this._edit) {
+      const s = this._edit.slots[Number(t.dataset.point)];
+      if (t.checked) s.end = null;
+      else s.end = String((Math.floor(hm(s.start) / 60) + 1) % 24).padStart(2, "0") + ":00";
+      this._render();
+      return;
+    }
     if (t.dataset.e && this._edit) {
       this._edit[t.dataset.e] = t.type === "checkbox" ? t.checked : t.value;
-      if (t.dataset.e === "season") this._render();
+      return;
+    }
+    if (t.dataset.slot === "hvac_mode" && this._edit) {
+      this._edit.slots[Number(t.dataset.i)].hvac_mode = t.value;
+      this._render();
       return;
     }
     this._onInput(ev);

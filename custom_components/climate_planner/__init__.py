@@ -10,17 +10,27 @@ from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
 from homeassistant.exceptions import ServiceValidationError
 
 from . import websocket
 from .const import DOMAIN, PANEL_COMPONENT, PANEL_PATH, SEASONS, STATIC_URL, VERSION
 from .planner import Planner
+from .schema import SCHEDULE_SCHEMA
 
 PLATFORMS = [Platform.SELECT, Platform.SWITCH]
 
 SERVICE_RESYNC = "resync"
 SERVICE_SET_SEASON = "set_season"
+SERVICE_SAVE = "save_schedule"
+SERVICE_DELETE = "delete_schedule"
+SERVICE_LIST = "list_schedules"
+SERVICES = (SERVICE_RESYNC, SERVICE_SET_SEASON, SERVICE_SAVE, SERVICE_DELETE, SERVICE_LIST)
 
 
 def _get_planner(hass: HomeAssistant) -> Planner:
@@ -60,6 +70,28 @@ def _async_register_services(hass: HomeAssistant) -> None:
     async def set_season(call: ServiceCall) -> None:
         await _get_planner(hass).async_update_settings(season=call.data["season"])
 
+    async def save(call: ServiceCall) -> ServiceResponse:
+        schedule_id = await _get_planner(hass).async_save_schedule(dict(call.data))
+        return {"id": schedule_id}
+
+    async def delete(call: ServiceCall) -> None:
+        await _get_planner(hass).async_delete_schedule(call.data["schedule_id"])
+
+    async def list_schedules(call: ServiceCall) -> ServiceResponse:
+        return _get_planner(hass).as_dict()
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_SAVE, save,
+        schema=SCHEDULE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_DELETE, delete,
+        schema=vol.Schema({vol.Required("schedule_id"): str}),
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_LIST, list_schedules, supports_response=SupportsResponse.ONLY
+    )
     hass.services.async_register(DOMAIN, SERVICE_RESYNC, resync)
     hass.services.async_register(
         DOMAIN,
@@ -93,6 +125,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         planner.stop()
         await planner.async_flush()
         frontend.async_remove_panel(hass, PANEL_PATH)
-        for service in (SERVICE_RESYNC, SERVICE_SET_SEASON):
+        for service in SERVICES:
             hass.services.async_remove(DOMAIN, service)
     return unloaded

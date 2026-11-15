@@ -46,6 +46,8 @@ class Planner:
         data = default_data()
         data.update(stored)
         for schedule in data["schedules"]:
+            if "seasons" not in schedule:
+                schedule["seasons"] = [schedule.pop("season", self.data["season"])]
             schedule.setdefault("enabled", True)
             schedule.setdefault("off_outside", True)
         self.data = data
@@ -149,7 +151,7 @@ class Planner:
     def active_schedules(self) -> list[dict[str, Any]]:
         season = self.data["season"]
         return [
-            s for s in self.data["schedules"] if s.get("enabled") and s["season"] == season
+            s for s in self.data["schedules"] if s.get("enabled") and season in s["seasons"]
         ]
 
     async def async_save_schedule(self, schedule: dict[str, Any]) -> str:

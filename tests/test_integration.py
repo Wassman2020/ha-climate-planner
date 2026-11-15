@@ -101,3 +101,29 @@ async def test_panel_and_auto_season(hass: HomeAssistant, hass_client, freezer: 
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert hass.states.get("select.climate_planner_season").state == "summer"
+
+
+async def test_services_multi_season(hass: HomeAssistant, freezer: FrozenDateTimeFactory):
+    await hass.config.async_set_time_zone("Europe/Madrid")
+    tz = dt_util.get_time_zone("Europe/Madrid")
+    freezer.move_to(dt_util.as_utc(datetime(2026, 11, 16, 22, 59, 0, tzinfo=tz)))
+    hass.states.async_set("climate.sotano", "heat", {"hvac_modes": ["off", "heat"]})
+    hvac = async_mock_service(hass, "climate", "set_hvac_mode")
+    await _setup(hass)
+    res = await hass.services.async_call(DOMAIN, "save_schedule", {
+        "id": "sotano_seguridad", "name": "Sótano apagados", "seasons": ["summer", "winter", "transition", "winter"],
+        "entities": "climate.sotano", "off_outside": False,
+        "slots": [{"days": [0, 1, 2, 3, 4, 5, 6], "start": t} for t in ("01:00", "23:00")],
+    }, blocking=True, return_response=True)
+    assert res == {"id": "sotano_seguridad"}
+    data = await hass.services.async_call(DOMAIN, "list_schedules", {}, blocking=True, return_response=True)
+    sch = data["schedules"][0]
+    assert sch["seasons"] == ["winter", "transition", "summer"]
+    assert sch["slots"][0]["end"] is None
+    freezer.tick(60)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hvac[-1].data == {"entity_id": "climate.sotano", "hvac_mode": "off"}
+    await hass.services.async_call(DOMAIN, "delete_schedule", {"schedule_id": "sotano_seguridad"}, blocking=True)
+    data = await hass.services.async_call(DOMAIN, "list_schedules", {}, blocking=True, return_response=True)
+    assert data["schedules"] == []
