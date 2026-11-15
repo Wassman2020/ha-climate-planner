@@ -576,6 +576,11 @@ class ClimatePlannerPanel extends HTMLElement {
   }
 }
 
-if (!customElements.get("climate-planner-panel")) {
-  customElements.define("climate-planner-panel", ClimatePlannerPanel);
-}
+// The tag carries the version (?v=x.y.z in the module URL) so that a newer
+// panel loads even if an older one is still defined in an open app session.
+let TAG = "climate-planner-panel";
+try {
+  const v = new URL(import.meta.url).searchParams.get("v");
+  if (v) TAG += "-" + v.replace(/[^a-z0-9]/gi, "-");
+} catch (_e) { /* keep default tag */ }
+if (!customElements.get(TAG)) customElements.define(TAG, ClimatePlannerPanel);

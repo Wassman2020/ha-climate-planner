@@ -1,7 +1,7 @@
 """Constants for Climate Planner."""
 
 DOMAIN = "climate_planner"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 STORAGE_KEY = f"{DOMAIN}.data"
 STORAGE_VERSION = 1
@@ -15,7 +15,7 @@ SEASON_TRANSITION = "transition"
 SEASONS = (SEASON_WINTER, SEASON_TRANSITION, SEASON_SUMMER)
 
 PANEL_PATH = "climate-planner"
-PANEL_COMPONENT = "climate-planner-panel"
+PANEL_COMPONENT = "climate-planner-panel-" + VERSION.replace(".", "-")
 STATIC_URL = "/climate_planner_static"
 
 DEFAULT_SEASON_DATES = [
