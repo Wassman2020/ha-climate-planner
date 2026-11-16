@@ -178,9 +178,59 @@ class Planner:
     async def async_set_season(self, season: str) -> None:
         if season == self.data["season"]:
             return
+        stale_entities = self._entities_left_on()
         self.data["season"] = season
         self._changed()
         await self.async_resync()
+        await self._async_turn_off_stale(stale_entities)
+
+    def _entities_left_on(self) -> set[str]:
+        """Entities the current season's schedules have switched on.
+
+        An entity counts when one of its schedules has a slot running right
+        now, or when the planner's last action on it was turning it on from one
+        of these schedules (a point action with no end time). Entities the user
+        switched on by hand are left alone.
+        """
+        now = dt_util.now()
+        weekday, minute = now.weekday(), now.hour * 60 + now.minute
+        result: set[str] = set()
+        for schedule in self.active_schedules():
+            try:
+                running = engine.active_slot(schedule, weekday, minute) is not None
+            except (KeyError, ValueError):
+                running = False
+            for entity_id in schedule["entities"]:
+                last = self.last_actions.get(entity_id) or {}
+                if running or (
+                    last.get("action") == "apply"
+                    and last.get("schedule") == schedule["name"]
+                ):
+                    result.add(entity_id)
+        return result
+
+    async def _async_turn_off_stale(self, entities: set[str]) -> None:
+        """Turn off entities the previous season left running but the new one
+        doesn't currently claim (e.g. the new season's schedules are all
+        point actions with no end time, so resync alone never turns them off).
+        """
+        if not self.data["enabled"] or not entities:
+            return
+        now = dt_util.now()
+        weekday, minute = now.weekday(), now.hour * 60 + now.minute
+        claimed = {
+            e
+            for s in self.active_schedules()
+            for e in s["entities"]
+            if engine.active_slot(s, weekday, minute) is not None
+        }
+        for entity_id in entities - claimed:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state == "off":
+                continue
+            _LOGGER.info("%s: encendido por la temporada anterior, se apaga", entity_id)
+            await self._async_apply_entity(entity_id, "off", None)
+            self._record(entity_id, "Cambio de temporada", "off", None, "season_change")
 
     async def async_update_settings(self, **settings: Any) -> None:
         if "season_dates" in settings:

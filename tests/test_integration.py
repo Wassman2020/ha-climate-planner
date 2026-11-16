@@ -188,3 +188,46 @@ async def test_presence_rules(hass: HomeAssistant, freezer: FrozenDateTimeFactor
     assert not hvac
     await hass.services.async_call(DOMAIN, "delete_presence_rule", {"entity": "climate.salon"}, blocking=True)
     assert planner.data["presence_rules"] == []
+
+
+async def test_season_change_turns_off_previous_season(hass: HomeAssistant, freezer: FrozenDateTimeFactory):
+    """Switching to a season whose schedules have no end times must still turn
+    off what the previous season switched on, and leave everything else alone."""
+    await hass.config.async_set_time_zone("Europe/Madrid")
+    tz = dt_util.get_time_zone("Europe/Madrid")
+    freezer.move_to(dt_util.as_utc(datetime(2026, 11, 15, 19, 59, 0, tzinfo=tz)))  # Sunday
+    modes = {"hvac_modes": ["off", "heat", "cool"]}
+    hass.states.async_set("climate.aitor", "off", modes)
+    hass.states.async_set("climate.cocina", "off", modes)
+    hvac = async_mock_service(hass, "climate", "set_hvac_mode")
+    async_mock_service(hass, "climate", "set_temperature")
+    await _setup(hass)
+    await hass.services.async_call(DOMAIN, "save_schedule", {
+        "id": "w", "name": "Invierno", "seasons": ["winter"],
+        "entities": ["climate.aitor", "climate.cocina"],
+        "slots": [{"days": [6], "start": "20:00", "end": "22:30", "hvac_mode": "heat", "temperature": 21}],
+    }, blocking=True)
+    await hass.services.async_call(DOMAIN, "save_schedule", {
+        "id": "t", "name": "Entretiempo", "seasons": ["transition"], "entities": ["climate.aitor"],
+        "slots": [{"days": [6], "start": "23:00"}],
+    }, blocking=True)
+
+    freezer.tick(60)  # 20:00 -> winter slot starts
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert [c.data["entity_id"] for c in hvac] == ["climate.aitor", "climate.cocina"]
+    hass.states.async_set("climate.aitor", "heat", modes)
+    hass.states.async_set("climate.cocina", "off", modes)  # already off: no extra call
+
+    hvac.clear()
+    await hass.services.async_call(DOMAIN, "set_season", {"season": "transition"}, blocking=True)
+    await hass.async_block_till_done()
+    assert [c.data for c in hvac] == [{"entity_id": "climate.aitor", "hvac_mode": "off"}]
+    assert hass.data[DOMAIN]["planner"].last_actions["climate.aitor"]["reason"] == "season_change"
+
+    # Switching back while nothing of the leaving season runs turns nothing off.
+    hass.states.async_set("climate.aitor", "heat", modes)  # turned on by hand
+    hvac.clear()
+    await hass.services.async_call(DOMAIN, "set_season", {"season": "summer"}, blocking=True)
+    await hass.async_block_till_done()
+    assert not hvac
